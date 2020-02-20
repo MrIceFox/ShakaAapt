@@ -78,7 +78,7 @@ static thread_id GetThreadId() {
 #if defined(__BIONIC__)
   return gettid();
 #elif defined(__APPLE__)
-  return syscall(SYS_thread_selfid);
+  return pthread_mach_thread_np(pthread_self());
 #elif defined(__linux__)
   return syscall(__NR_gettid);
 #elif defined(_WIN32)
