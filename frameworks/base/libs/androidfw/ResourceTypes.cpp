@@ -38,6 +38,7 @@
 #include <utils/Log.h>
 #include <utils/String16.h>
 #include <utils/String8.h>
+#include <androidfw/ResourcePackageId.h>
 
 #ifdef __ANDROID__
 #include <binder/TextOutput.h>
@@ -46,6 +47,13 @@
 #ifndef INT32_MAX
 #define INT32_MAX ((int32_t)(2147483647))
 #endif
+
+#define APP_PACKAGE_ID      0x7f
+#define SYS_PACKAGE_ID      0x01
+
+size_t customePackageId = APP_PACKAGE_ID;
+char* sktPackageName;
+
 
 namespace android {
 
@@ -60,9 +68,6 @@ namespace android {
 
 #define IDMAP_MAGIC             0x504D4449
 #define IDMAP_CURRENT_VERSION   0x00000001
-
-#define APP_PACKAGE_ID      0x7f
-#define SYS_PACKAGE_ID      0x01
 
 static const bool kDebugStringPoolNoisy = false;
 static const bool kDebugXMLNoisy = false;
@@ -4653,7 +4658,7 @@ nope:
                     && (targetTypeLen = attrPrivate.size())
             );
         }
-        break;
+        // break;
     }
     return 0;
 }
@@ -5044,7 +5049,8 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
                              Accessor* accessor,
                              void* accessorCookie,
                              uint32_t attrType,
-                             bool enforcePrivate) const
+                             bool enforcePrivate,
+                             bool printError) const
 {
     bool localizationSetting = accessor != NULL && accessor->getLocalizationSetting();
     const char* errorMsg = NULL;
@@ -5156,7 +5162,7 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
             String16 package, type, name;
             if (!expandResourceRef(resourceRefName,resourceNameLen, &package, &type, &name,
                                    defType, defPackage, &errorMsg)) {
-                if (accessor != NULL) {
+                if (accessor != NULL&& printError) {
                     accessor->reportError(accessorCookie, errorMsg);
                 }
                 return false;
@@ -5167,9 +5173,9 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
                     type.size(), package.string(), package.size(), &specFlags);
             if (rid != 0) {
                 if (enforcePrivate) {
-                    if (accessor == NULL || accessor->getAssetsPackage() != package) {
+                    if (accessor == NULL) {
                         if ((specFlags&ResTable_typeSpec::SPEC_PUBLIC) == 0) {
-                            if (accessor != NULL) {
+                            if (accessor != NULL&& printError) {
                                 accessor->reportError(accessorCookie, "Resource is not public.");
                             }
                             return false;
@@ -5189,7 +5195,7 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
                 }
 
                 uint32_t packageId = Res_GETPACKAGE(rid) + 1;
-                if (packageId != APP_PACKAGE_ID && packageId != SYS_PACKAGE_ID) {
+                if (packageId != customePackageId && packageId != SYS_PACKAGE_ID &&packageId != APP_PACKAGE_ID) {
                     outValue->dataType = Res_value::TYPE_DYNAMIC_REFERENCE;
                 }
                 outValue->data = rid;
@@ -5210,7 +5216,7 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
                         outValue->data = rid;
                         outValue->dataType = Res_value::TYPE_DYNAMIC_REFERENCE;
                         return true;
-                    } else if (packageId == APP_PACKAGE_ID || packageId == SYS_PACKAGE_ID) {
+                    } else if (packageId == customePackageId || packageId == SYS_PACKAGE_ID || packageId == APP_PACKAGE_ID) {
                         // We accept packageId's generated as 0x01 in order to support
                         // building the android system resources
                         outValue->data = rid;
@@ -5220,7 +5226,7 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
             }
         }
 
-        if (accessor != NULL) {
+        if (accessor != NULL && printError) {
             accessor->reportError(accessorCookie, "No resource found that matches the given name");
         }
         return false;
@@ -5230,7 +5236,7 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
     // complain and bail.
     if (l10nReq == ResTable_map::L10N_SUGGESTED) {
         if (localizationSetting) {
-            if (accessor != NULL) {
+            if (accessor != NULL && printError) {
                 accessor->reportError(accessorCookie, "This attribute must be localized.");
             }
         }
@@ -5356,7 +5362,7 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
             }
 
             uint32_t packageId = Res_GETPACKAGE(rid) + 1;
-            if (packageId != APP_PACKAGE_ID && packageId != SYS_PACKAGE_ID) {
+            if (packageId != customePackageId && packageId != APP_PACKAGE_ID && packageId != SYS_PACKAGE_ID) {
                 outValue->dataType = Res_value::TYPE_DYNAMIC_ATTRIBUTE;
             }
             outValue->data = rid;
@@ -5371,7 +5377,7 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
                     outValue->data = rid;
                     outValue->dataType = Res_value::TYPE_DYNAMIC_ATTRIBUTE;
                     return true;
-                } else if (packageId == APP_PACKAGE_ID || packageId == SYS_PACKAGE_ID) {
+                } else if (packageId != customePackageId || packageId == APP_PACKAGE_ID || packageId == SYS_PACKAGE_ID) {
                     // We accept packageId's generated as 0x01 in order to support
                     // building the android system resources
                     outValue->data = rid;
@@ -5380,7 +5386,7 @@ bool ResTable::stringToValue(Res_value* outValue, String16* outString,
             }
         }
 
-        if (accessor != NULL) {
+        if (accessor != NULL && printError) {
             accessor->reportError(accessorCookie, "No resource found that matches the given name");
         }
         return false;
@@ -6426,6 +6432,7 @@ DynamicRefTable::DynamicRefTable(uint8_t packageId, bool appAsLib)
     memset(mLookupTable, 0, sizeof(mLookupTable));
 
     // Reserved package ids
+    mLookupTable[customePackageId] = customePackageId;
     mLookupTable[APP_PACKAGE_ID] = APP_PACKAGE_ID;
     mLookupTable[SYS_PACKAGE_ID] = SYS_PACKAGE_ID;
 }
@@ -6506,12 +6513,12 @@ status_t DynamicRefTable::lookupResourceId(uint32_t* resId) const {
     uint32_t res = *resId;
     size_t packageId = Res_GETPACKAGE(res) + 1;
 
-    if (packageId == APP_PACKAGE_ID && !mAppAsLib) {
+    if ((packageId == customePackageId || packageId == APP_PACKAGE_ID) && !mAppAsLib) {
         // No lookup needs to be done, app package IDs are absolute.
         return NO_ERROR;
     }
 
-    if (packageId == 0 || (packageId == APP_PACKAGE_ID && mAppAsLib)) {
+    if (packageId == 0 || ((packageId == customePackageId || packageId == APP_PACKAGE_ID) && mAppAsLib)) {
         // The package ID is 0x00. That means that a shared library is accessing
         // its own local resource.
         // Or if app resource is loaded as shared library, the resource which has
@@ -7114,6 +7121,53 @@ void ResTable::print(bool inclValues) const
             }
         }
     }
+}
+
+KeyedVector<uint32_t, ResTable::resource_name> ResTable::getResourceEntries() const
+{
+    KeyedVector<uint32_t, resource_name> resourceEntries;
+    size_t pgCount = mPackageGroups.size();
+    for (size_t pgIndex=0; pgIndex<pgCount; pgIndex++) {
+        const PackageGroup* pg = mPackageGroups[pgIndex];
+
+        int packageId = pg->id;
+        size_t pkgCount = pg->packages.size();
+        for (size_t pkgIndex=0; pkgIndex<pkgCount; pkgIndex++) {
+            const Package* pkg = pg->packages[pkgIndex];
+            // Use a package's real ID, since the ID may have been assigned
+            // if this package is a shared library.
+            packageId = pkg->package->id;
+        }
+
+        for (size_t typeIndex=0; typeIndex < pg->types.size(); typeIndex++) {
+            const TypeList& typeList = pg->types[typeIndex];
+            if (typeList.isEmpty()) {
+                continue;
+            }
+            const Type* typeConfigs = typeList[0];
+            if (typeConfigs->typeSpecFlags != NULL) {
+                for (size_t entryIndex=0; entryIndex<typeConfigs->entryCount; entryIndex++) {
+                    uint32_t resID = (0xff000000 & ((packageId)<<24))
+                                | (0x00ff0000 & ((typeIndex+1)<<16))
+                                | (0x0000ffff & (entryIndex));
+                    // Since we are creating resID without actually
+                    // iterating over them, we have no idea which is a
+                    // dynamic reference. We must check.
+                    if (packageId == 0) {
+                        pg->dynamicRefTable.lookupResourceId(&resID);
+                    }
+
+                    resource_name resName;
+                    if (this->getResourceName(resID, true, &resName)) {
+                        resourceEntries.add(resID, resName);
+                    } else {
+                        printf("      INVALID TYPE CONFIG FOR RESOURCE 0x%08x\n", resID);
+                    }
+                }
+            }
+        }
+    }
+    return resourceEntries;
 }
 
 }   // namespace android

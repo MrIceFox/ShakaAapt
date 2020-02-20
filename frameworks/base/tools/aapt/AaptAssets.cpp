@@ -1554,6 +1554,21 @@ status_t AaptAssets::buildIncludedResources(Bundle* bundle)
         }
     }
 
+    if (bundle->getBaselinePackage().size() > 0){
+        String8 baseline = bundle->getBaselinePackage();
+        if (!baseline.isEmpty()) {
+            if (bundle->getVerbose()) {
+                printf("Including baseline resources from package: %s\n",
+                        baseline.string());
+            }
+    
+            if (!mBaselineAssets.addAssetPath(baseline, NULL)) {
+                fprintf(stderr, "ERROR: baseline package '%s' not found.\n",
+                        baseline.string());
+                return UNKNOWN_ERROR;
+            }
+        }
+    }
     mHaveIncludedAssets = true;
 
     return NO_ERROR;
@@ -1574,6 +1589,16 @@ const ResTable& AaptAssets::getIncludedResources() const
 AssetManager& AaptAssets::getAssetManager()
 {
     return mIncludedAssets;
+}
+
+const ResTable& AaptAssets::getBaselineResources() const
+{
+    return mBaselineAssets.getResources(false);
+}
+
+AssetManager& AaptAssets::getBaselineAssetManager()
+{
+    return mBaselineAssets;
 }
 
 void AaptAssets::print(const String8& prefix) const

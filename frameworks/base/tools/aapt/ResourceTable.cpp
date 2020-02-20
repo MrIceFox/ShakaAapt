@@ -13,9 +13,11 @@
 #include "SdkConstants.h"
 
 #include <algorithm>
+#include <androidfw/ResourcePackageId.h>
 #include <androidfw/ResourceTypes.h>
 #include <utils/ByteOrder.h>
 #include <utils/TypeHelpers.h>
+#include <utils/Log.h>
 #include <stdarg.h>
 
 // SSIZE: mingw does not have signed size_t == ssize_t.
@@ -94,14 +96,14 @@ status_t compileXmlFile(const Bundle* bundle,
     
     bool hasErrors = false;
     if ((options&XML_COMPILE_ASSIGN_ATTRIBUTE_IDS) != 0) {
-        status_t err = root->assignResourceIds(assets, table);
+        status_t err = root->assignResourceIds(assets, table, bundle);
         if (err != NO_ERROR) {
             hasErrors = true;
         }
     }
 
     if ((options&XML_COMPILE_PARSE_VALUES) != 0) {
-        status_t err = root->parseValues(assets, table);
+        status_t err = root->parseValues(assets, table, bundle);
         if (err != NO_ERROR) {
             hasErrors = true;
         }
@@ -1759,7 +1761,7 @@ ResourceTable::ResourceTable(Bundle* bundle, const String16& assetsPackage, Reso
     switch (mPackageType) {
         case App:
         case AppFeature:
-            packageId = 0x7f;
+            packageId = customePackageId;
             break;
 
         case System:
@@ -1786,7 +1788,8 @@ ResourceTable::ResourceTable(Bundle* bundle, const String16& assetsPackage, Reso
 static uint32_t findLargestTypeIdForPackage(const ResTable& table, const String16& packageName) {
     const size_t basePackageCount = table.getBasePackageCount();
     for (size_t i = 0; i < basePackageCount; i++) {
-        if (packageName == table.getBasePackageName(i)) {
+        if ((packageName == table.getBasePackageName(i)) || 
+               (table.getBasePackageId(i) == customePackageId)) {
             return table.getLastTypeIdForPackage(i);
         }
     }
@@ -1803,6 +1806,30 @@ status_t ResourceTable::addIncludedResources(Bundle* bundle, const sp<AaptAssets
     mAssets = assets;
     mTypeIdOffset = findLargestTypeIdForPackage(assets->getIncludedResources(), mAssetsPackage);
 
+    const KeyedVector<uint32_t, ResTable::resource_name> resourceEntries = mAssets->getBaselineResources().getResourceEntries();
+    const size_t N = resourceEntries.size();
+    for (size_t i=0; i<N; i++) {
+        const uint32_t resID = resourceEntries.keyAt(i);
+        const ResTable::resource_name resName = resourceEntries.valueAt(i);
+        String8 type8;
+        String8 name8;
+        if (resName.type8 != NULL) {
+            type8 = String8(resName.type8, resName.typeLen);
+        } else {
+            type8 = String8(resName.type, resName.typeLen);
+        }
+        if (resName.name8 != NULL) {
+            name8 = String8(resName.name8, resName.nameLen);
+        } else {
+            name8 = String8(resName.name, resName.nameLen);
+        }
+        if (strncmp(name8.string(), "null", strlen("null")) != 0) {
+            err = addPublic(SourcePos(), String16(resName.package,resName.packageLen), String16(type8), String16(name8), resID);
+        }
+    }
+    if (err != NO_ERROR) {
+        return err;
+    }
     const String8& featureAfter = bundle->getFeatureAfterPackage();
     if (!featureAfter.isEmpty()) {
         AssetManager featureAssetManager;
@@ -2218,6 +2245,12 @@ uint32_t ResourceTable::getResId(const String16& package,
     sp<Type> t = p->getTypes().valueFor(type);
     if (t == NULL) return 0;
     sp<ConfigList> c = t->getConfigs().valueFor(name);
+    if (mBundle->getBaselinePackage().size() > 0 && c == NULL) {
+        int32_t idx = t->getPublicIndex(name);
+        if (idx > 0) {
+            return idx;
+        }
+    }
     if (c == NULL) {
         if (type != String16("attr")) {
             return 0;
@@ -2266,8 +2299,8 @@ uint32_t ResourceTable::getResId(const String16& ref,
                 String8(name).string(), res);
     }
     if (res == 0) {
-        if (outErrorMsg)
-            *outErrorMsg = "No resource found that matches the given name";
+        //if (outErrorMsg)
+            //*outErrorMsg = "No resource found that matches the given name";
     }
     return res;
 }
@@ -2307,7 +2340,15 @@ bool ResourceTable::stringToValue(Res_value* outValue, StringPool* pool,
         res = mAssets->getIncludedResources()
             .stringToValue(outValue, &finalStr, str.string(), str.size(), preserveSpaces,
                             coerceType, attrID, NULL, &mAssetsPackage, this,
-                           accessorCookie, attrType);
+                           accessorCookie, attrType, true, sktPackageName == NULL);
+        if (!res){
+            String16 packageName = String16(sktPackageName);
+            // Text is not styled so it can be any type...  let's figure it out.
+            res = mAssets->getIncludedResources()
+                .stringToValue(outValue, &finalStr, str.string(), str.size(), preserveSpaces,
+                            coerceType, attrID, NULL, &packageName, this,
+                           accessorCookie, attrType, false);
+        }
     } else {
         // Styled text can only be a string, and while collecting the style
         // information we have already processed that string!
@@ -2365,6 +2406,12 @@ uint32_t ResourceTable::getCustomResource(
     sp<Type> t = p->getTypes().valueFor(type);
     if (t == NULL) return 0;
     sp<ConfigList> c =  t->getConfigs().valueFor(name);
+    if (mBundle->getBaselinePackage().size() > 0 && c == NULL) {
+        int32_t idx = t->getPublicIndex(name);
+        if (idx > 0) {
+            return idx;
+        }
+    }
     if (c == NULL) {
         if (type != String16("attr")) {
             return 0;
@@ -2563,7 +2610,7 @@ bool ResourceTable::getAttributeFlags(
     return false;
 }
 
-status_t ResourceTable::assignResourceIds()
+status_t ResourceTable::assignResourceIds(Bundle *bundle)
 {
     const size_t N = mOrderedPackages.size();
     size_t pi;
@@ -2631,7 +2678,7 @@ status_t ResourceTable::assignResourceIds()
                 continue;
             }
 
-            err = t->applyPublicEntryOrder();
+            err = t->applyPublicEntryOrder(mBundle->getBaselinePackage().size() > 0);
             if (err != NO_ERROR && firstError == NO_ERROR) {
                 firstError = err;
             }
@@ -2672,7 +2719,7 @@ status_t ResourceTable::assignResourceIds()
                     if (e == NULL) {
                         continue;
                     }
-                    status_t err = e->assignResourceIds(this, p->getName());
+                    status_t err = e->assignResourceIds(this, p->getName(), bundle);
                     if (err != NO_ERROR && firstError == NO_ERROR) {
                         firstError = err;
                     }
@@ -2875,7 +2922,7 @@ status_t ResourceTable::flatten(Bundle* bundle, const sp<const ResourceFilter>& 
     for (size_t i = 0; i < basePackageCount; i++) {
         size_t packageId = table.getBasePackageId(i);
         String16 packageName(table.getBasePackageName(i));
-        if (packageId > 0x01 && packageId != 0x7f &&
+        if (packageId > 0x01 && packageId != customePackageId&&
                 packageName != String16("android")) {
             libraryPackages.add(sp<Package>(new Package(packageName, packageId)));
         }
@@ -2890,6 +2937,7 @@ status_t ResourceTable::flatten(Bundle* bundle, const sp<const ResourceFilter>& 
         if (p->getTypes().size() == 0) {
             continue;
         }
+        const String16 packageName(p->getName());
 
         StringPool typeStrings(useUTF8);
         StringPool keyStrings(useUTF8);
@@ -2935,6 +2983,15 @@ status_t ResourceTable::flatten(Bundle* bundle, const sp<const ResourceFilter>& 
 
             const bool filterable = (typeName != mipmap16);
 
+            if (bundle->getBaselinePackage().size() <= 0) {
+                for (size_t ci=0; ci<0x7f; ci++) {
+                    String16 value("false");
+                    status_t err = addEntry(SourcePos(), packageName, typeName, String16(String8::format("%s_%zu", String8(value).string(), ci)), value);
+                    if (err != NO_ERROR) {
+                        return err;
+                    }
+                }
+            }
             const size_t N = t->getOrderedConfigs().size();
             for (size_t ci=0; ci<N; ci++) {
                 sp<ConfigList> c = t->getOrderedConfigs().itemAt(ci);
@@ -3012,7 +3069,9 @@ status_t ResourceTable::flatten(Bundle* bundle, const sp<const ResourceFilter>& 
         header->header.type = htods(RES_TABLE_PACKAGE_TYPE);
         header->header.headerSize = htods(sizeof(*header));
         header->id = htodl(static_cast<uint32_t>(p->getAssignedId()));
-        strcpy16_htod(header->name, p->getName().string());
+        strcpy16_htod(header->name, sktPackageName? 
+                                    String16(sktPackageName):
+                                    p->getName().string());
 
         // Write the string blocks.
         const size_t typeStringsStart = data->getSize();
@@ -3406,6 +3465,9 @@ void ResourceTable::writePublicDefinitions(const String16& package, FILE* fp, bo
                     continue;
                 }
 
+                int32_t ei = c->getEntryIndex();
+                if (ei < 0) continue;
+
                 if (!didType) {
                     fprintf(fp, "\n");
                     didType = true;
@@ -3433,7 +3495,7 @@ void ResourceTable::writePublicDefinitions(const String16& package, FILE* fp, bo
                 fprintf(fp, "  <public type=\"%s\" name=\"%s\" id=\"0x%08x\" />\n",
                         String8(t->getName()).string(),
                         String8(c->getName()).string(),
-                        getResId(pkg, t, c->getEntryIndex()));
+                        getResId(pkg, t, ei));
             }
         }
     }
@@ -3637,7 +3699,8 @@ status_t ResourceTable::Entry::generateAttributes(ResourceTable* table,
 }
 
 status_t ResourceTable::Entry::assignResourceIds(ResourceTable* table,
-                                                 const String16& /* package */)
+                                                 const String16& /*package*/,
+                                                 Bundle* /*bundle*/)
 {
     bool hasErrors = false;
     
@@ -3649,6 +3712,11 @@ status_t ResourceTable::Entry::assignResourceIds(ResourceTable* table,
         mParentId = 0;
         if (mParent.size() > 0) {
             mParentId = table->getResId(mParent, &style16, NULL, &errorMsg);
+            if (mParentId == 0 && sktPackageName != NULL) {
+                String16 defPackage = String16(sktPackageName);
+                mParentId = table->getResId(mParent, &style16, &defPackage, &errorMsg, false);
+            }
+
             if (mParentId == 0) {
                 mPos.error("Error retrieving parent for item: %s '%s'.\n",
                         errorMsg, String8(mParent).string());
@@ -3662,6 +3730,11 @@ status_t ResourceTable::Entry::assignResourceIds(ResourceTable* table,
             it.bagKeyId = table->getResId(key,
                     it.isId ? &id16 : &attr16, NULL, &errorMsg);
             //printf("Bag key of %s: #%08x\n", String8(key).string(), it.bagKeyId);
+            if (it.bagKeyId == 0 && sktPackageName != NULL) {
+                String16 defPackage = String16(sktPackageName);
+                it.bagKeyId = table->getResId(key,
+                    it.isId ? &id16 : &attr16, &defPackage, &errorMsg, false);
+            }
             if (it.bagKeyId == 0) {
                 it.sourcePos.error("Error: %s: %s '%s'.\n", errorMsg,
                         String8(it.isId ? id16 : attr16).string(),
@@ -4004,7 +4077,17 @@ SortedVector<ConfigDescription> ResourceTable::Type::getUniqueConfigs() const {
     return unique;
 }
 
-status_t ResourceTable::Type::applyPublicEntryOrder()
+status_t ResourceTable::Type::getPublicIndex(const String16& entry) /*const*/
+{
+    if (mPublic.indexOfKey(/*name*/entry) < 0) {
+        return -1;
+    } else {
+        Public& p = mPublic.editValueFor(/*name*/entry);
+        return p.ident;
+    }
+}
+
+status_t ResourceTable::Type::applyPublicEntryOrder(bool patch)
 {
     size_t N = mOrderedConfigs.size();
     Vector<sp<ConfigList> > origOrder(mOrderedConfigs);
@@ -4024,6 +4107,11 @@ status_t ResourceTable::Type::applyPublicEntryOrder()
         int32_t idx = Res_GETENTRY(p.ident);
         //printf("Looking for entry \"%s\"/\"%s\" (0x%08x) in %d...\n",
         //       String8(mName).string(), String8(name).string(), p.ident, N);
+        if (patch) {
+            if (idx >= (int32_t)mOrderedConfigs.size()) {
+                mOrderedConfigs.resize(idx + 1);
+            }
+        }
         bool found = false;
         for (i=0; i<N; i++) {
             sp<ConfigList> e = origOrder.itemAt(i);
@@ -4057,7 +4145,7 @@ status_t ResourceTable::Type::applyPublicEntryOrder()
             }
         }
 
-        if (!found) {
+        if (!patch && !found) {
             p.sourcePos.error("Public symbol %s/%s declared here is not defined.",
                     String8(mName).string(), String8(name).string());
             hasError = true;
@@ -4074,12 +4162,16 @@ status_t ResourceTable::Type::applyPublicEntryOrder()
     j = 0;
     for (i=0; i<N; i++) {
         sp<ConfigList> e = origOrder.itemAt(i);
-        // There will always be enough room for the remaining entries.
-        while (mOrderedConfigs.itemAt(j) != NULL) {
+        if (patch) {
+            mOrderedConfigs.add(e);
+        } else {
+            // There will always be enough room for the remaining entries.
+            while (mOrderedConfigs.itemAt(j) != NULL) {
+                j++;
+            }
+            mOrderedConfigs.replaceAt(e, j);
             j++;
         }
-        mOrderedConfigs.replaceAt(e, j);
-        j++;
     }
 
     return hasError ? STATUST(UNKNOWN_ERROR) : NO_ERROR;

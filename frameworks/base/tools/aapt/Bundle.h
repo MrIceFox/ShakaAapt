@@ -166,6 +166,8 @@ public:
     void setResourceIntermediatesDir(const char* dir) { mResourceIntermediatesDir = dir; }
     const android::Vector<android::String8>& getPackageIncludes() const { return mPackageIncludes; }
     void addPackageInclude(const char* file) { mPackageIncludes.add(android::String8(file)); }
+    void setBaselinePackage(const char* str) { mBaselinePackage = str; }
+    const android::String8& getBaselinePackage() const { return mBaselinePackage; }
     const android::Vector<const char*>& getJarFiles() const { return mJarFiles; }
     void addJarFile(const char* file) { mJarFiles.add(file); }
     const android::Vector<const char*>& getNoCompressExtensions() const { return mNoCompressExtensions; }
@@ -310,6 +312,7 @@ private:
     android::String8 mPreferredDensity;
     android::Vector<android::String8> mPartialConfigurations;
     android::Vector<android::String8> mPackageIncludes;
+    android::String8 mBaselinePackage;
     android::Vector<const char*> mJarFiles;
     android::Vector<const char*> mNoCompressExtensions;
     android::Vector<const char*> mAssetSourceDirs;

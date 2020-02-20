@@ -252,7 +252,7 @@ public:
                        const String8* configTypeName = NULL,
                        const ConfigDescription* config = NULL);
 
-    status_t assignResourceIds();
+    status_t assignResourceIds(Bundle *bundle);
     status_t addSymbols(const sp<AaptSymbols>& outSymbols = NULL,
                         bool skipSymbolsWithoutDefaultLocalization = false);
     void addLocalization(const String16& name, const String8& locale, const SourcePos& src);
@@ -380,7 +380,8 @@ public:
                                     const String16& package);
 
         status_t assignResourceIds(ResourceTable* table,
-                                   const String16& package);
+                                   const String16& package,
+                                   Bundle *bundle);
 
         status_t prepareFlatten(StringPool* strings, ResourceTable* table,
                const String8* configTypeName, const ConfigDescription* config);
@@ -498,12 +499,14 @@ public:
 
         const SourcePos& getFirstPublicSourcePos() const { return *mFirstPublicSourcePos; }
 
+        int32_t getPublicIndex(const String16& entry) /*const*/;
+
         int32_t getPublicIndex() const { return mPublicIndex; }
 
         int32_t getIndex() const { return mIndex; }
         void setIndex(int32_t index) { mIndex = index; }
 
-        status_t applyPublicEntryOrder();
+        status_t applyPublicEntryOrder(bool patch);
 
         const DefaultKeyedVector<String16, sp<ConfigList> >& getConfigs() const { return mConfigs; }
         const Vector<sp<ConfigList> >& getOrderedConfigs() const { return mOrderedConfigs; }

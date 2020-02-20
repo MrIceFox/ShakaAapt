@@ -1819,7 +1819,8 @@ public:
                        Accessor* accessor = NULL,
                        void* accessorCookie = NULL,
                        uint32_t attrType = ResTable_map::TYPE_ANY,
-                       bool enforcePrivate = true) const;
+                       bool enforcePrivate = true,
+                       bool printError = true) const;
 
     // Perform processing of escapes and quotes in a string.
     static bool collectString(String16* outString,
@@ -1874,6 +1875,7 @@ public:
 
     void print(bool inclValues) const;
     static String8 normalizeForOutput(const char* input);
+    KeyedVector<uint32_t, ResTable::resource_name> getResourceEntries() const;
 
 private:
     struct Header;

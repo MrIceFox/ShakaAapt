@@ -563,6 +563,8 @@ public:
     status_t addIncludedResources(const sp<AaptFile>& file);
     const ResTable& getIncludedResources() const;
     AssetManager& getAssetManager();
+    const ResTable& getBaselineResources() const;
+    AssetManager& getBaselineAssetManager();
 
     void print(const String8& prefix) const;
 
@@ -610,6 +612,7 @@ private:
 
     bool mHaveIncludedAssets;
     AssetManager mIncludedAssets;
+    AssetManager mBaselineAssets;
 
     sp<AaptAssets> mOverlay;
     KeyedVector<String8, sp<ResourceTypeSet> >* mRes;

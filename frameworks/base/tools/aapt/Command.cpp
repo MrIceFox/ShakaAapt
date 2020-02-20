@@ -26,6 +26,7 @@
 #include <iostream>
 #include <string>
 #include <sstream>
+#include <androidfw/ResourcePackageId.h>
 
 using namespace android;
 
@@ -2592,6 +2593,10 @@ int doPackage(Bundle* bundle)
             const String8 customPkg(bundle->getCustomPackage());
             err = writeResourceSymbols(bundle, assets, customPkg, true,
                     bundle->getBuildSharedLibrary() || bundle->getBuildAppAsSharedLibrary());
+        }
+        if (err < 0 && (sktPackageName != NULL)) {
+            err = writeResourceSymbols(bundle, assets, String8(sktPackageName), true,
+                    bundle->getBuildSharedLibrary());
         }
         if (err < 0) {
             goto bail;

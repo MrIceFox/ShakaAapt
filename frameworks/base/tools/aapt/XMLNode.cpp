@@ -11,6 +11,7 @@
 #include <utils/ByteOrder.h>
 #include <errno.h>
 #include <string.h>
+#include <androidfw/ResourcePackageId.h>
 
 #ifndef _WIN32
 #define O_BINARY 0
@@ -975,7 +976,7 @@ void XMLNode::removeWhitespace(bool stripAll, const char** cDataTags)
 }
 
 status_t XMLNode::parseValues(const sp<AaptAssets>& assets,
-                              ResourceTable* table)
+                              ResourceTable* table, const Bundle *bundle)
 {
     bool hasErrors = false;
 
@@ -987,10 +988,22 @@ status_t XMLNode::parseValues(const sp<AaptAssets>& assets,
             AccessorCookie ac(SourcePos(mFilename, getStartLineNumber()), String8(e.name),
                     String8(e.string));
             table->setCurrentXmlPos(SourcePos(mFilename, getStartLineNumber()));
+            bool failGetFromDefaultPackage = false;
             if (!assets->getIncludedResources()
                     .stringToValue(&e.value, &e.string,
                                   e.string.string(), e.string.size(), true, true,
-                                  e.nameResId, NULL, &defPackage, table, &ac)) {
+                                  e.nameResId, NULL, &defPackage, table, &ac, 
+                                  ResTable_map::TYPE_ANY, true, sktPackageName == NULL)) {
+                failGetFromDefaultPackage = true;
+            }
+            if (failGetFromDefaultPackage && (sktPackageName != NULL)){
+                String16 defPackage = String16(sktPackageName);
+                if (!assets->getIncludedResources().stringToValue(&e.value, &e.string,
+                     e.string.string(), e.string.size(), true, true, e.nameResId, 
+                     NULL, &defPackage, table, &ac, ResTable_map::TYPE_ANY, true, true)) {
+                     hasErrors = true;
+                }
+            } else if (failGetFromDefaultPackage){
                 hasErrors = true;
             }
             if (kIsDebug) {
@@ -1002,7 +1015,7 @@ status_t XMLNode::parseValues(const sp<AaptAssets>& assets,
     }
     const size_t N = mChildren.size();
     for (size_t i=0; i<N; i++) {
-        status_t err = mChildren.itemAt(i)->parseValues(assets, table);
+        status_t err = mChildren.itemAt(i)->parseValues(assets, table, bundle);
         if (err != NO_ERROR) {
             hasErrors = true;
         }
@@ -1011,7 +1024,8 @@ status_t XMLNode::parseValues(const sp<AaptAssets>& assets,
 }
 
 status_t XMLNode::assignResourceIds(const sp<AaptAssets>& assets,
-                                    const ResourceTable* table)
+                                    const ResourceTable* table,
+                                    const Bundle* bundle)
 {
     bool hasErrors = false;
 
@@ -1040,6 +1054,12 @@ status_t XMLNode::assignResourceIds(const sp<AaptAssets>& assets,
                     identifierForName(e.name.string(), e.name.size(),
                                       attr.string(), attr.size(),
                                       pkg.string(), pkg.size());
+            if (res == 0){
+                if (sktPackageName != NULL){
+                    String16 defPackage = String16(sktPackageName);
+                    res = table != NULL ? table->getResId(e.name, &attr, &defPackage, &errorMsg, false) : 0;
+                }
+            }
             if (res != 0) {
                 if (kIsDebug) {
                     printf("XML attribute name %s: resid=0x%08x\n",
@@ -1056,7 +1076,7 @@ status_t XMLNode::assignResourceIds(const sp<AaptAssets>& assets,
     }
     const size_t N = mChildren.size();
     for (size_t i=0; i<N; i++) {
-        status_t err = mChildren.itemAt(i)->assignResourceIds(assets, table);
+        status_t err = mChildren.itemAt(i)->assignResourceIds(assets, table, bundle);
         if (err < NO_ERROR) {
             hasErrors = true;
         }

@@ -19,6 +19,7 @@
 #include "XMLNode.h"
 
 #include <algorithm>
+#include <androidfw/ResourcePackageId.h>
 
 // STATUST: mingw does seem to redefine UNKNOWN_ERROR from our enum value, so a cast is necessary.
 
@@ -1375,7 +1376,7 @@ status_t buildResources(Bundle* bundle, const sp<AaptAssets>& assets, sp<ApkBuil
     // --------------------------------------------------------------------
 
     if (table.hasResources()) {
-        err = table.assignResourceIds();
+        err = table.assignResourceIds(bundle);
         if (err < NO_ERROR) {
             return err;
         }
@@ -2205,6 +2206,20 @@ static status_t writeLayoutClasses(
                     attr16.string(), attr16.size(),
                     package16.string(), package16.size(), &typeSpecFlags);
                 if (code == 0) {
+                    String16 package16_taobao(sktPackageName);
+                    code = assets->getIncludedResources().identifierForName(
+                        name16.string(), name16.size(),
+                        attr16.string(), attr16.size(),
+                        package16_taobao.string(), package16_taobao.size(), &typeSpecFlags);
+                }
+                // if (code ==0) {
+                // String16 package16_taobao(sktPackageName);
+                // code = assets->getIncludedResources().identifierForName(
+                //     name16.string(), name16.size(),
+                //     attr16.string(), attr16.size(),
+                //     package16_taobao.string(), package16_taobao.size(), &typeSpecFlags);
+                // }
+                if (code == 0) {
                     fprintf(stderr, "ERROR: In <declare-styleable> %s, unable to find attribute %s\n",
                             nclassName.string(), sym.name.string());
                     hasErrors = true;
@@ -2437,6 +2452,13 @@ static status_t writeTextLayoutClasses(
                     name16.string(), name16.size(),
                     attr16.string(), attr16.size(),
                     package16.string(), package16.size(), &typeSpecFlags);
+                if (code ==0) {
+                String16 package16_taobao(sktPackageName);
+                code = assets->getIncludedResources().identifierForName(
+                    name16.string(), name16.size(),
+                    attr16.string(), attr16.size(),
+                    package16_taobao.string(), package16_taobao.size(), &typeSpecFlags);
+                }
                 if (code == 0) {
                     fprintf(stderr, "ERROR: In <declare-styleable> %s, unable to find attribute %s\n",
                             nclassName.string(), sym.name.string());

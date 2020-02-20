@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <getopt.h>
 #include <cassert>
+#include <androidfw/ResourcePackageId.h>
 
 using namespace android;
 
@@ -75,6 +76,7 @@ void usage(void)
         "        [--split CONFIGS [--split CONFIGS]] \\\n"
         "        [--feature-of package [--feature-after package]] \\\n"
         "        [raw-files-dir [raw-files-dir] ...] \\\n"
+        "        [-B apk-file] \\\n"
         "        [--output-text-symbols DIR]\n"
         "\n"
         "   Package the android resources.  It will read assets and resources that are\n"
@@ -224,7 +226,13 @@ void usage(void)
         "   --no-version-vectors\n"
         "       Do not automatically generate versioned copies of vector XML resources.\n"
         "   --private-symbols\n"
-        "       Java package name to use when generating R.java for private resources.\n",
+        "       Java package name to use when generating R.java for private resources.\n"/*,*/
+        "   --customized-package-id\n"
+        "       By default, package id should be 127 in R.java of application,\n"
+        "       using thie parametor would change the id to other value\n"
+        "   --use-skt-package-name\n"
+        "       use skt package name as resource arsc package name !!\n"
+        "   -B  specify the baseline apk file for output\n",
         gDefaultIgnoreAssets);
 }
 
@@ -413,6 +421,17 @@ int main(int argc, char* const argv[])
                 }
                 convertPath(argv[0]);
                 bundle.addPackageInclude(argv[0]);
+                break;
+            case 'B':
+                argc--;
+                argv++;
+                if (!argc) {
+                    fprintf(stderr, "ERROR: No argument supplied for '-B' option\n");
+                    wantUsage = true;
+                    goto bail;
+                }
+                convertPath(argv[0]);
+                bundle.setBaselinePackage(argv[0]);
                 break;
             case 'F':
                 argc--;
@@ -714,6 +733,29 @@ int main(int argc, char* const argv[])
                         goto bail;
                     }
                     bundle.setPrivateSymbolsPackage(String8(argv[0]));
+                } else if (strcmp(cp, "-customized-package-id") == 0) {
+                    argc--;
+                    argv++;
+                    if (!argc) {
+                        fprintf(stderr, "ERROR: No argument supplied for '--customized-package-id' option\n");
+                        wantUsage = true;
+                        goto bail;
+                    }
+                    customePackageId = atoi(argv[0]); 
+                    if (customePackageId > 127 || customePackageId <= 0) {
+                        fprintf(stderr, "ERROR:  '--customized-package-id' option value should between 0 and 127\n");
+                        wantUsage = true;
+                        goto bail;
+                    }
+                } else if (strcmp(cp, "-use-skt-package-name") == 0) {
+                    argc--;
+                    argv++;
+                    if (!argc) {
+                        fprintf(stderr, "ERROR: No argument supplied for '--use-skt-package-name' option\n");
+                        wantUsage = true;
+                        goto bail;
+                    }
+                    sktPackageName = argv[0];  
                 } else {
                     fprintf(stderr, "ERROR: Unknown option '-%s'\n", cp);
                     wantUsage = true;
